@@ -30,13 +30,15 @@ from cryptography.hazmat.backends.openssl.decode_asn1 import (
     _CRL_ENTRY_REASON_ENUM_TO_CODE
 )
 from cryptography.hazmat.backends.openssl.dh import (
-    _DHParameters, _DHPrivateKey, _DHPublicKey, _dh_params_dup
+    _DHParameters, _DHBlindPrivateKey, _DHPrivateKey,
+    _DHPublicKey, _dh_params_dup
 )
 from cryptography.hazmat.backends.openssl.dsa import (
-    _DSAParameters, _DSAPrivateKey, _DSAPublicKey
+    _DSAParameters, _DSABlindPrivateKey, _DSAPrivateKey, _DSAPublicKey
 )
 from cryptography.hazmat.backends.openssl.ec import (
-    _EllipticCurvePrivateKey, _EllipticCurvePublicKey
+    _EllipticCurveBlindPrivateKey, _EllipticCurvePrivateKey,
+    _EllipticCurvePublicKey
 )
 from cryptography.hazmat.backends.openssl.ed25519 import (
     _Ed25519PrivateKey, _Ed25519PublicKey
@@ -60,7 +62,7 @@ from cryptography.hazmat.backends.openssl.poly1305 import (
     _POLY1305_KEY_SIZE, _Poly1305Context
 )
 from cryptography.hazmat.backends.openssl.rsa import (
-    _RSAPrivateKey, _RSAPublicKey
+    _RSABlindPrivateKey, _RSAPrivateKey, _RSAPublicKey
 )
 from cryptography.hazmat.backends.openssl.x25519 import (
     _X25519PrivateKey, _X25519PublicKey
@@ -509,7 +511,7 @@ class Backend(object):
         bio_data = self._ffi.buffer(buf[0], buf_len)[:]
         return bio_data
 
-    def _evp_pkey_to_private_key(self, evp_pkey):
+    def _evp_pkey_to_private_key(self, evp_pkey, blind=False):
         """
         Return the appropriate type of PrivateKey given an evp_pkey cdata
         pointer.
@@ -521,22 +523,26 @@ class Backend(object):
             rsa_cdata = self._lib.EVP_PKEY_get1_RSA(evp_pkey)
             self.openssl_assert(rsa_cdata != self._ffi.NULL)
             rsa_cdata = self._ffi.gc(rsa_cdata, self._lib.RSA_free)
-            return _RSAPrivateKey(self, rsa_cdata, evp_pkey)
+            cls = _RSABlindPrivateKey if blind else _RSAPrivateKey
+            return cls(self, rsa_cdata, evp_pkey)
         elif key_type == self._lib.EVP_PKEY_DSA:
             dsa_cdata = self._lib.EVP_PKEY_get1_DSA(evp_pkey)
             self.openssl_assert(dsa_cdata != self._ffi.NULL)
             dsa_cdata = self._ffi.gc(dsa_cdata, self._lib.DSA_free)
-            return _DSAPrivateKey(self, dsa_cdata, evp_pkey)
+            cls = _DSABlindPrivateKey if blind else _DSAPrivateKey
+            return cls(self, dsa_cdata, evp_pkey)
         elif key_type == self._lib.EVP_PKEY_EC:
             ec_cdata = self._lib.EVP_PKEY_get1_EC_KEY(evp_pkey)
             self.openssl_assert(ec_cdata != self._ffi.NULL)
             ec_cdata = self._ffi.gc(ec_cdata, self._lib.EC_KEY_free)
-            return _EllipticCurvePrivateKey(self, ec_cdata, evp_pkey)
+            cls = _EllipticCurveBlindPrivateKey if blind else _EllipticCurvePrivateKey
+            return cls(self, ec_cdata, evp_pkey)
         elif key_type in self._dh_types:
             dh_cdata = self._lib.EVP_PKEY_get1_DH(evp_pkey)
             self.openssl_assert(dh_cdata != self._ffi.NULL)
             dh_cdata = self._ffi.gc(dh_cdata, self._lib.DH_free)
-            return _DHPrivateKey(self, dh_cdata, evp_pkey)
+            cls = _DHBlindPrivateKey if blind else _DHPrivateKey
+            return cls(self, dh_cdata, evp_pkey)
         elif key_type == getattr(self._lib, "EVP_PKEY_ED25519", None):
             # EVP_PKEY_ED25519 is not present in OpenSSL < 1.1.1
             return _Ed25519PrivateKey(self, evp_pkey)
@@ -2472,6 +2478,19 @@ class Backend(object):
 
         return _Poly1305Context(self, key)
 
+    def get_engine_key(self, engine_id, key_id):
+        eng = self._lib.ENGINE_by_id(engine_id)
+        self.openssl_assert(eng != self._ffi.NULL)
+        ret = self._lib.ENGINE_init(eng)
+        self._lib.ENGINE_free(eng)
+        if ret != 1:
+            raise Exception("Failed to initialize engine {}".format(engine_id))
+        eng = self._ffi.gc(eng, self._lib.ENGINE_finish)
+        pkey = self._lib.ENGINE_load_private_key(eng, key_id, self._ffi.NULL, self._ffi.NULL)
+        if pkey == self._ffi.NULL:
+            raise Exception("Failed to load private key")
+        pkey = self._ffi.gc(pkey, self._lib.EVP_PKEY_free)
+        return self._evp_pkey_to_private_key(pkey, blind=True)
 
 class GetCipherByName(object):
     def __init__(self, fmt):

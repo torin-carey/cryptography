@@ -135,8 +135,8 @@ class _ECDSAVerificationContext(object):
         )
 
 
-@utils.register_interface(ec.EllipticCurvePrivateKeyWithSerialization)
-class _EllipticCurvePrivateKey(object):
+@utils.register_interface(ec.EllipticCurvePrivateKey)
+class _EllipticCurveBlindPrivateKey(object):
     def __init__(self, backend, ec_key_cdata, evp_pkey):
         self._backend = backend
         self._ec_key = ec_key_cdata
@@ -212,6 +212,16 @@ class _EllipticCurvePrivateKey(object):
 
         return _EllipticCurvePublicKey(self._backend, public_ec_key, evp_pkey)
 
+    def sign(self, data, signature_algorithm):
+        _check_signature_algorithm(signature_algorithm)
+        data, algorithm = _calculate_digest_and_algorithm(
+            self._backend, data, signature_algorithm._algorithm
+        )
+        return _ecdsa_sig_sign(self._backend, self, data)
+
+
+@utils.register_interface(ec.EllipticCurvePrivateKeyWithSerialization)
+class _EllipticCurvePrivateKey(_EllipticCurveBlindPrivateKey):
     def private_numbers(self):
         bn = self._backend._lib.EC_KEY_get0_private_key(self._ec_key)
         private_value = self._backend._bn_to_int(bn)
@@ -228,13 +238,6 @@ class _EllipticCurvePrivateKey(object):
             self._evp_pkey,
             self._ec_key
         )
-
-    def sign(self, data, signature_algorithm):
-        _check_signature_algorithm(signature_algorithm)
-        data, algorithm = _calculate_digest_and_algorithm(
-            self._backend, data, signature_algorithm._algorithm
-        )
-        return _ecdsa_sig_sign(self._backend, self, data)
 
 
 @utils.register_interface(ec.EllipticCurvePublicKeyWithSerialization)

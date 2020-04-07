@@ -105,8 +105,8 @@ class _DSAParameters(object):
         return self._backend.generate_dsa_private_key(self)
 
 
-@utils.register_interface(dsa.DSAPrivateKeyWithSerialization)
-class _DSAPrivateKey(object):
+@utils.register_interface(dsa.DSAPrivateKey)
+class _DSABlindPrivateKey(object):
     def __init__(self, backend, dsa_cdata, evp_pkey):
         self._backend = backend
         self._dsa_cdata = dsa_cdata
@@ -125,31 +125,6 @@ class _DSAPrivateKey(object):
         _warn_sign_verify_deprecated()
         _check_not_prehashed(signature_algorithm)
         return _DSASignatureContext(self._backend, self, signature_algorithm)
-
-    def private_numbers(self):
-        p = self._backend._ffi.new("BIGNUM **")
-        q = self._backend._ffi.new("BIGNUM **")
-        g = self._backend._ffi.new("BIGNUM **")
-        pub_key = self._backend._ffi.new("BIGNUM **")
-        priv_key = self._backend._ffi.new("BIGNUM **")
-        self._backend._lib.DSA_get0_pqg(self._dsa_cdata, p, q, g)
-        self._backend.openssl_assert(p[0] != self._backend._ffi.NULL)
-        self._backend.openssl_assert(q[0] != self._backend._ffi.NULL)
-        self._backend.openssl_assert(g[0] != self._backend._ffi.NULL)
-        self._backend._lib.DSA_get0_key(self._dsa_cdata, pub_key, priv_key)
-        self._backend.openssl_assert(pub_key[0] != self._backend._ffi.NULL)
-        self._backend.openssl_assert(priv_key[0] != self._backend._ffi.NULL)
-        return dsa.DSAPrivateNumbers(
-            public_numbers=dsa.DSAPublicNumbers(
-                parameter_numbers=dsa.DSAParameterNumbers(
-                    p=self._backend._bn_to_int(p[0]),
-                    q=self._backend._bn_to_int(q[0]),
-                    g=self._backend._bn_to_int(g[0])
-                ),
-                y=self._backend._bn_to_int(pub_key[0])
-            ),
-            x=self._backend._bn_to_int(priv_key[0])
-        )
 
     def public_key(self):
         dsa_cdata = self._backend._lib.DSAparams_dup(self._dsa_cdata)
@@ -178,6 +153,39 @@ class _DSAPrivateKey(object):
         )
         return _DSAParameters(self._backend, dsa_cdata)
 
+    def sign(self, data, algorithm):
+        data, algorithm = _calculate_digest_and_algorithm(
+            self._backend, data, algorithm
+        )
+        return _dsa_sig_sign(self._backend, self, data)
+
+@utils.register_interface(dsa.DSAPrivateKeyWithSerialization)
+class _DSAPrivateKey(_DSABlindPrivateKey):
+    def private_numbers(self):
+        p = self._backend._ffi.new("BIGNUM **")
+        q = self._backend._ffi.new("BIGNUM **")
+        g = self._backend._ffi.new("BIGNUM **")
+        pub_key = self._backend._ffi.new("BIGNUM **")
+        priv_key = self._backend._ffi.new("BIGNUM **")
+        self._backend._lib.DSA_get0_pqg(self._dsa_cdata, p, q, g)
+        self._backend.openssl_assert(p[0] != self._backend._ffi.NULL)
+        self._backend.openssl_assert(q[0] != self._backend._ffi.NULL)
+        self._backend.openssl_assert(g[0] != self._backend._ffi.NULL)
+        self._backend._lib.DSA_get0_key(self._dsa_cdata, pub_key, priv_key)
+        self._backend.openssl_assert(pub_key[0] != self._backend._ffi.NULL)
+        self._backend.openssl_assert(priv_key[0] != self._backend._ffi.NULL)
+        return dsa.DSAPrivateNumbers(
+            public_numbers=dsa.DSAPublicNumbers(
+                parameter_numbers=dsa.DSAParameterNumbers(
+                    p=self._backend._bn_to_int(p[0]),
+                    q=self._backend._bn_to_int(q[0]),
+                    g=self._backend._bn_to_int(g[0])
+                ),
+                y=self._backend._bn_to_int(pub_key[0])
+            ),
+            x=self._backend._bn_to_int(priv_key[0])
+        )
+
     def private_bytes(self, encoding, format, encryption_algorithm):
         return self._backend._private_key_bytes(
             encoding,
@@ -186,12 +194,6 @@ class _DSAPrivateKey(object):
             self._evp_pkey,
             self._dsa_cdata
         )
-
-    def sign(self, data, algorithm):
-        data, algorithm = _calculate_digest_and_algorithm(
-            self._backend, data, algorithm
-        )
-        return _dsa_sig_sign(self._backend, self, data)
 
 
 @utils.register_interface(dsa.DSAPublicKeyWithSerialization)

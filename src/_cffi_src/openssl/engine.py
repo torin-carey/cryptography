@@ -10,6 +10,7 @@ INCLUDES = """
 
 TYPES = """
 typedef ... ENGINE;
+typedef ... UI_METHOD;
 
 static const long Cryptography_HAS_ENGINE;
 """
@@ -24,6 +25,9 @@ void ENGINE_unregister_RAND(ENGINE *);
 int ENGINE_ctrl_cmd(ENGINE *, const char *, long, void *, void (*)(void), int);
 int ENGINE_free(ENGINE *);
 const char *ENGINE_get_name(const ENGINE *);
+
+void ENGINE_load_builtin_engines(void);
+EVP_PKEY *ENGINE_load_private_key(ENGINE *, const char *, UI_METHOD *, void *);
 
 """
 

@@ -20,7 +20,8 @@ from cryptography.hazmat.primitives.asymmetric.padding import (
     AsymmetricPadding, MGF1, OAEP, PKCS1v15, PSS, calculate_max_pss_salt_length
 )
 from cryptography.hazmat.primitives.asymmetric.rsa import (
-    RSAPrivateKeyWithSerialization, RSAPublicKeyWithSerialization
+    RSAPrivateKey, RSAPrivateKeyWithSerialization,
+    RSAPublicKeyWithSerialization
 )
 
 
@@ -327,8 +328,8 @@ class _RSAVerificationContext(object):
         )
 
 
-@utils.register_interface(RSAPrivateKeyWithSerialization)
-class _RSAPrivateKey(object):
+@utils.register_interface(RSAPrivateKey)
+class _RSABlindPrivateKey(object):
     def __init__(self, backend, rsa_cdata, evp_pkey):
         self._backend = backend
         self._rsa_cdata = rsa_cdata
@@ -365,6 +366,15 @@ class _RSAPrivateKey(object):
         evp_pkey = self._backend._rsa_cdata_to_evp_pkey(ctx)
         return _RSAPublicKey(self._backend, ctx, evp_pkey)
 
+    def sign(self, data, padding, algorithm):
+        data, algorithm = _calculate_digest_and_algorithm(
+            self._backend, data, algorithm
+        )
+        return _rsa_sig_sign(self._backend, padding, algorithm, self, data)
+
+
+@utils.register_interface(RSAPrivateKeyWithSerialization)
+class _RSAPrivateKey(_RSABlindPrivateKey):
     def private_numbers(self):
         n = self._backend._ffi.new("BIGNUM **")
         e = self._backend._ffi.new("BIGNUM **")
@@ -408,12 +418,6 @@ class _RSAPrivateKey(object):
             self._evp_pkey,
             self._rsa_cdata
         )
-
-    def sign(self, data, padding, algorithm):
-        data, algorithm = _calculate_digest_and_algorithm(
-            self._backend, data, algorithm
-        )
-        return _rsa_sig_sign(self._backend, padding, algorithm, self, data)
 
 
 @utils.register_interface(RSAPublicKeyWithSerialization)

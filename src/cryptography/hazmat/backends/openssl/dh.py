@@ -103,8 +103,8 @@ def _get_dh_num_bits(backend, dh_cdata):
     return backend._lib.BN_num_bits(p[0])
 
 
-@utils.register_interface(dh.DHPrivateKeyWithSerialization)
-class _DHPrivateKey(object):
+@utils.register_interface(dh.DHPrivateKey)
+class _DHBlindPrivateKey(object):
     def __init__(self, backend, dh_cdata, evp_pkey):
         self._backend = backend
         self._dh_cdata = dh_cdata
@@ -114,34 +114,6 @@ class _DHPrivateKey(object):
     @property
     def key_size(self):
         return _get_dh_num_bits(self._backend, self._dh_cdata)
-
-    def private_numbers(self):
-        p = self._backend._ffi.new("BIGNUM **")
-        g = self._backend._ffi.new("BIGNUM **")
-        q = self._backend._ffi.new("BIGNUM **")
-        self._backend._lib.DH_get0_pqg(self._dh_cdata, p, q, g)
-        self._backend.openssl_assert(p[0] != self._backend._ffi.NULL)
-        self._backend.openssl_assert(g[0] != self._backend._ffi.NULL)
-        if q[0] == self._backend._ffi.NULL:
-            q_val = None
-        else:
-            q_val = self._backend._bn_to_int(q[0])
-        pub_key = self._backend._ffi.new("BIGNUM **")
-        priv_key = self._backend._ffi.new("BIGNUM **")
-        self._backend._lib.DH_get0_key(self._dh_cdata, pub_key, priv_key)
-        self._backend.openssl_assert(pub_key[0] != self._backend._ffi.NULL)
-        self._backend.openssl_assert(priv_key[0] != self._backend._ffi.NULL)
-        return dh.DHPrivateNumbers(
-            public_numbers=dh.DHPublicNumbers(
-                parameter_numbers=dh.DHParameterNumbers(
-                    p=self._backend._bn_to_int(p[0]),
-                    g=self._backend._bn_to_int(g[0]),
-                    q=q_val
-                ),
-                y=self._backend._bn_to_int(pub_key[0])
-            ),
-            x=self._backend._bn_to_int(priv_key[0])
-        )
 
     def exchange(self, peer_public_key):
 
@@ -188,6 +160,36 @@ class _DHPrivateKey(object):
 
     def parameters(self):
         return _dh_cdata_to_parameters(self._dh_cdata, self._backend)
+
+@utils.register_interface(dh.DHPrivateKeyWithSerialization)
+class _DHPrivateKey(_DHBlindPrivateKey):
+    def private_numbers(self):
+        p = self._backend._ffi.new("BIGNUM **")
+        g = self._backend._ffi.new("BIGNUM **")
+        q = self._backend._ffi.new("BIGNUM **")
+        self._backend._lib.DH_get0_pqg(self._dh_cdata, p, q, g)
+        self._backend.openssl_assert(p[0] != self._backend._ffi.NULL)
+        self._backend.openssl_assert(g[0] != self._backend._ffi.NULL)
+        if q[0] == self._backend._ffi.NULL:
+            q_val = None
+        else:
+            q_val = self._backend._bn_to_int(q[0])
+        pub_key = self._backend._ffi.new("BIGNUM **")
+        priv_key = self._backend._ffi.new("BIGNUM **")
+        self._backend._lib.DH_get0_key(self._dh_cdata, pub_key, priv_key)
+        self._backend.openssl_assert(pub_key[0] != self._backend._ffi.NULL)
+        self._backend.openssl_assert(priv_key[0] != self._backend._ffi.NULL)
+        return dh.DHPrivateNumbers(
+            public_numbers=dh.DHPublicNumbers(
+                parameter_numbers=dh.DHParameterNumbers(
+                    p=self._backend._bn_to_int(p[0]),
+                    g=self._backend._bn_to_int(g[0]),
+                    q=q_val
+                ),
+                y=self._backend._bn_to_int(pub_key[0])
+            ),
+            x=self._backend._bn_to_int(priv_key[0])
+        )
 
     def private_bytes(self, encoding, format, encryption_algorithm):
         if format is not serialization.PrivateFormat.PKCS8:
